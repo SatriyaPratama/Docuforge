@@ -1,0 +1,10 @@
+# runtime/model caches should never be sent in image build context
+data/
+
+# local Python artifacts
+__pycache__/
+*.py[cod]
+
+# local virtual env or tooling
+.venv/
+.env*

@@ -1,0 +1,16 @@
+.git
+.gitignore
+.next
+node_modules
+npm-debug.log*
+Dockerfile
+README.md
+*.tsbuildinfo
+
+# backend service and runtime/model caches are built separately
+backend/
+
+# local env and editor artifacts
+.env*
+.vscode/
+tmp-test.png

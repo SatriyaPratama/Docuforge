@@ -1,0 +1,45 @@
+{
+  "name": "docuforge-temp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --max-warnings=0",
+    "start": "next start",
+    "stack:up": "docker compose up --build",
+    "stack:down": "docker compose down",
+    "stack:logs": "docker compose logs -f",
+    "stack:gpu": "docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build",
+    "stack:gpu:down": "docker compose -f docker-compose.yml -f docker-compose.gpu.yml down"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.12",
+    "exceljs": "^4.4.0",
+    "file-saver": "^2.0.5",
+    "next": "^16.2.12",
+    "pdfjs-dist": "^5.5.207",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/file-saver": "^2.0.7",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.12",
+    "jsdom": "^28.1.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  }
+}

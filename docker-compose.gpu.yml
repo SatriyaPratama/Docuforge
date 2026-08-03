@@ -1,0 +1,73 @@
+# Opt-in GPU override for DocuForge — NVIDIA via CUDA llama.cpp sidecar.
+#
+#   Enable : docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#            (or: npm run stack:gpu)
+#   CPU    : docker compose up (default — this file is NOT applied)
+#
+# A dedicated llama-server owns the GPU. The Surya service attaches to it via
+# the OpenAI-compatible endpoint, so the Python service stays single-process.
+services:
+  llama-cuda:
+    # Pin the CUDA server image so a registry tag update cannot silently
+    # change the kernel/runtime combination on the local GPU.
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:48b8053c05319cde97e64463d117b5747d3fb27475b176f85edf27bd503fa7f9
+    gpus: all
+    volumes:
+      - ./backend/ocr/data/hf/hub/models--datalab-to--surya-ocr-2-gguf:/model:ro
+    command:
+      - -m
+      - /model/blobs/1f18abe17b1ed8b4e47ee9b1ad0e274c93daf5efbb6b29a04ff1712e37051e05
+      - --mmproj
+      - /model/blobs/98c0563673b1657ff6d021d1e5f04af06cbf61bb40c63ac613e8bb71b42fb2c0
+      - -ngl
+      - "99"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "12288"
+      - --batch-size
+      - "${LLAMA_BATCH_SIZE:-128}"
+      - --ubatch-size
+      - "${LLAMA_UBATCH_SIZE:-64}"
+      - --flash-attn
+      # Enabled by default for target throughput. Only change this in a
+      # staging replay while diagnosing a CUDA failure; production should keep
+      # the performance-capable path enabled.
+      - "${LLAMA_FLASH_ATTN:-on}"
+      - --parallel
+      - "1"
+      - --jinja
+      - --alias
+      - datalab-to/surya-ocr-2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 300s
+    restart: unless-stopped
+    networks:
+      - docuforge-net
+
+  surya-ocr:
+    environment:
+      SURYA_INFERENCE_BACKEND: "llamacpp"
+      SURYA_INFERENCE_URL: "http://llama-cuda:8080/v1"
+      SURYA_INFERENCE_HEALTH_URL: "http://llama-cuda:8080/health"
+      SURYA_INFERENCE_PARALLEL: "1"
+      INFERENCE_CONCURRENCY: "1"
+      INFERENCE_READY_TIMEOUT_SECONDS: "90"
+      INFERENCE_RECOVERY_ATTEMPTS: "1"
+      # llama.cpp currently rejects Surya's layout JSON schema escape syntax
+      # (for example \\d). Normal layout/block output remains enabled.
+      SURYA_GUIDED_LAYOUT: "false"
+      SURYA_INFERENCE_CTX_PER_SLOT: "${SURYA_INFERENCE_CTX_PER_SLOT:-12288}"
+      SURYA_MAX_TOKENS_FULL_PAGE: "${SURYA_MAX_TOKENS_FULL_PAGE:-8192}"
+      SURYA_MAX_TOKENS_BLOCK_CEILING: "${SURYA_MAX_TOKENS_BLOCK_CEILING:-4096}"
+      SURYA_MAX_TOKENS_TABLE_REC: "${SURYA_MAX_TOKENS_TABLE_REC:-2048}"
+      DOCUFORGE_DEVICE: "gpu"
+    depends_on:
+      llama-cuda:
+        condition: service_healthy

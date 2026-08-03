@@ -1,0 +1,102 @@
+services:
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docuforge-webapp
+    ports:
+      - "3000:3000"
+    environment:
+      OCR_ENDPOINT: http://surya-ocr:8080
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      surya-ocr:
+        condition: service_healthy
+    healthcheck:
+      # node:20-alpine does not include wget; use the runtime already in the image.
+      test: ["CMD", "node", "-e", "const os = require('os'); const ip = Object.values(os.networkInterfaces()).flat().find(x => x && x.family === 'IPv4' && !x.internal)?.address; fetch('http://' + ip + ':3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - docuforge-net
+
+  surya-ocr:
+    build:
+      context: ./backend/ocr
+      dockerfile: Dockerfile
+    container_name: docuforge-surya-ocr
+    # Internal-only: reachable from webapp via the compose network.
+    # For direct debugging use `--profile debug` (ocr-debug-proxy below).
+    expose:
+      - "8080"
+    environment:
+      # Inference backend: llamacpp (in-container CPU server, default) or vllm
+      # (external GPU server). See backend/ocr/README.md for GPU setup.
+      SURYA_INFERENCE_BACKEND: "${SURYA_INFERENCE_BACKEND:-llamacpp}"
+      # For vllm, uncomment to attach to an existing OpenAI-compatible server
+      # (an empty value would break llamacpp auto-spawn, so keep it unset for CPU):
+      # SURYA_INFERENCE_URL: "${SURYA_INFERENCE_URL}"
+      SURYA_INFERENCE_PARALLEL: "${SURYA_INFERENCE_PARALLEL:-4}"
+      SURYA_INFERENCE_KEEP_ALIVE: "1"
+      SURYA_INFERENCE_CTX_PER_SLOT: "${SURYA_INFERENCE_CTX_PER_SLOT:-12288}"
+      SURYA_MAX_TOKENS_FULL_PAGE: "${SURYA_MAX_TOKENS_FULL_PAGE:-12288}"
+      SURYA_MAX_TOKENS_BLOCK_CEILING: "${SURYA_MAX_TOKENS_BLOCK_CEILING:-8192}"
+      SURYA_MAX_TOKENS_TABLE_REC: "${SURYA_MAX_TOKENS_TABLE_REC:-3072}"
+      # Concurrent parse requests served at once. Blank = auto (1 for CPU, 4 for
+      # vLLM). Raise for GPU to process large-document chunks in parallel.
+      INFERENCE_CONCURRENCY: "${INFERENCE_CONCURRENCY:-}"
+      # Per-request page batch for splitting large documents. Blank = auto
+      # (4 on CPU for frequent progress, 25 on vLLM/GPU). Override to tune.
+      CHUNK_SIZE: "${CHUNK_SIZE:-}"
+      HF_HOME: /data/hf
+      HUGGINGFACE_HUB_CACHE: /data/hf/hub
+      TORCH_HOME: /data/torch
+      XDG_CACHE_HOME: /data/cache
+      MAX_PAGES: "${MAX_PAGES:-50}"
+      MAX_QUEUE_DEPTH: "${MAX_QUEUE_DEPTH:-4}"
+      DOCUMENT_TTL_SECONDS: "${DOCUMENT_TTL_SECONDS:-3600}"
+      TABLE_ITEMS_ENABLED: "${TABLE_ITEMS_ENABLED:-1}"
+    volumes:
+      - ./backend/ocr/data/hf:/data/hf
+      - ./backend/ocr/data/torch:/data/torch
+      - ./backend/ocr/data/cache:/data/cache
+      - ./backend/ocr/data/documents:/data/documents
+    healthcheck:
+      # /ready returns 503 until the model warmup succeeds, so webapp only
+      # starts accepting traffic against a usable OCR service.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ready')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 600s
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - docuforge-net
+
+  # Optional host access to the OCR API for smoke tests:
+  #   docker compose --profile debug up ocr-debug-proxy
+  ocr-debug-proxy:
+    image: alpine/socat
+    profiles: ["debug"]
+    command: TCP-LISTEN:8080,fork,reuseaddr TCP:surya-ocr:8080
+    ports:
+      - "${OCR_HOST_PORT:-8081}:8080"
+    depends_on:
+      - surya-ocr
+    networks:
+      - docuforge-net
+
+networks:
+  docuforge-net:
+    driver: bridge
